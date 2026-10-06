@@ -227,6 +227,90 @@ def test_buy_and_hold_tracks_the_mean_of_constituent_returns(features):
     assert daily.loc[some_date, "ret"] == pytest.approx(expected)
 
 
+def test_a_single_trade_reconciles_day_by_day(monkeypatch):
+    """Walk one trade end to end and check every daily return against hand arithmetic.
+
+    The aggregate tests above would pass even if the daily series and the trade list
+    disagreed — each is internally consistent on its own. This is the one that says the
+    equity curve is actually made of the trades it claims to be made of.
+
+    With a single slot the portfolio return *is* the position's return, so each day's
+    figure can be checked exactly rather than approximately.
+    """
+    import study.backtest as backtest_module
+
+    # isolate the hold-period exit; the RSI reversion exit is tested separately
+    monkeypatch.setattr(backtest_module, "EXIT_ON_RSI_REVERSION", False)
+
+    bars = make_bars(["AAA"], n_days=40, seed=11)
+    sentiment = bars[["ticker", "date"]].copy()
+    sentiment["sentiment"] = np.nan
+    sentiment.loc[20, "sentiment"] = 0.9     # the only day that clears the threshold
+    sentiment["articles"] = 0
+
+    features = build_features(bars, sentiment, (14, 2))
+    cost_bps, hold = 20.0, 5
+    one_way = cost_bps / 2 / 10_000
+
+    out = run_backtest(
+        features, "sentiment", cost_bps=cost_bps, hold_days=hold, max_positions=1
+    )
+    trades, daily = out["trades"], out["daily"]
+
+    assert len(trades) == 1, "exactly one signal should produce exactly one trade"
+    trade = trades.iloc[0]
+
+    rows = features.sort_values("date").reset_index(drop=True)
+    signal_row, entry_row = rows.loc[20], rows.loc[21]
+    exit_row = rows.loc[21 + hold]
+
+    # ── the trade itself ──────────────────────────────────────────────────────
+    assert trade["signal_date"] == signal_row["date"]
+    assert trade["entry_date"] == entry_row["date"]
+    assert trade["exit_date"] == exit_row["date"]
+    assert trade["days_held"] == hold
+    assert trade["entry_price"] == pytest.approx(entry_row["open"])
+    assert trade["exit_price"] == pytest.approx(exit_row["open"])
+    assert trade["gross_return"] == pytest.approx(
+        exit_row["open"] / entry_row["open"] - 1
+    )
+    assert trade["net_return"] == pytest.approx(trade["gross_return"] - 2 * one_way)
+
+    # ── every daily return it generated ───────────────────────────────────────
+    returns = daily["ret"]
+
+    # entry day: filled at the open, marked to that day's close, charged half the cost
+    assert returns.loc[entry_row["date"]] == pytest.approx(
+        entry_row["close"] / entry_row["open"] - 1 - one_way
+    )
+
+    # the days in between: plain close-to-close
+    for offset in range(1, hold):
+        today, yesterday = rows.loc[21 + offset], rows.loc[20 + offset]
+        assert returns.loc[today["date"]] == pytest.approx(
+            today["close"] / yesterday["close"] - 1
+        ), f"day {offset} of the hold"
+
+    # exit day: previous close into the open, charged the other half
+    assert returns.loc[exit_row["date"]] == pytest.approx(
+        exit_row["open"] / rows.loc[20 + hold]["close"] - 1 - one_way
+    )
+
+    # and nothing anywhere else
+    touched = rows.loc[21 : 21 + hold, "date"]
+    assert returns.drop(index=touched).abs().max() == pytest.approx(0.0)
+
+
+def test_no_trades_means_no_returns(features):
+    """A strategy that never fires must sit in cash, not drift."""
+    quiet = features.copy()
+    quiet["sentiment"] = -1.0          # never clears the positive threshold
+    out = run_backtest(quiet, "sentiment", cost_bps=10.0)
+
+    assert out["trades"].empty
+    assert out["daily"]["ret"].abs().max() == pytest.approx(0.0)
+
+
 def test_empty_input_produces_no_trades():
     empty = pd.DataFrame(
         columns=["ticker", "date", "open", "high", "low", "close", "volume",
