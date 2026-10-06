@@ -47,6 +47,12 @@ BAR_WARMUP_DAYS = 90
 SENTIMENT_MODEL = "ProsusAI/finbert"
 SENTIMENT_BATCH_SIZE = 64
 
+# Articles per checkpoint. Scoring the corpus takes roughly two hours on CPU, so the
+# cache is written every chunk rather than once at the end — an interruption then costs
+# a few minutes instead of the whole run, and a rerun resumes from where it stopped.
+# Learned the obvious way, by losing a two-hour pass to a flat battery.
+SENTIMENT_CHUNK_SIZE = 5_000
+
 # Characters of (title + body) fed to FinBERT. 512 chars is roughly the headline plus the
 # opening two or three sentences — the lede, which is where a news article puts the
 # tradeable claim. This is a throughput decision as well as a modelling one, and the two

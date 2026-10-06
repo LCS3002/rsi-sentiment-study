@@ -14,6 +14,7 @@ conclusion rests on it.
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 
 import numpy as np
 import pandas as pd
@@ -22,6 +23,7 @@ from study.config import (
     MAX_TEXT_CHARS,
     SENTIMENT_BATCH_SIZE,
     SENTIMENT_CACHE,
+    SENTIMENT_CHUNK_SIZE,
     SENTIMENT_HALFLIFE_DAYS,
     SENTIMENT_MODEL,
 )
@@ -144,35 +146,57 @@ def score_articles(news: pd.DataFrame, force: bool = False) -> pd.DataFrame:
         return merged
 
     logger.info("%d of %d article(s) need scoring", len(to_score), len(merged))
-    merged.loc[to_score.index, "score"] = _run_finbert(
-        _article_text(to_score).tolist()
-    )
 
-    fresh = merged[key_cols + ["score"]].copy()
-    fresh["model"] = SENTIMENT_MODEL
-    fresh["max_chars"] = MAX_TEXT_CHARS
-
-    combined = (
-        pd.concat([previous[cache_cols], fresh[cache_cols]], ignore_index=True)
-        .drop_duplicates(subset=key_cols + ["model", "max_chars"], keep="last")
-    )
-
+    # Scored in chunks, persisting after each one. The full corpus takes around two
+    # hours on CPU, and writing only at the end means any interruption — a crash, a
+    # dead battery — throws all of it away. Checkpointing turns that into losing a
+    # few minutes, and makes the job resumable: a rerun picks up from the cache.
     SENTIMENT_CACHE.parent.mkdir(parents=True, exist_ok=True)
-    combined.to_parquet(SENTIMENT_CACHE, index=False)
+    scored_so_far = previous[cache_cols].copy() if len(previous) else pd.DataFrame(columns=cache_cols)
+    positions = list(to_score.index)
+    total = len(positions)
+
+    for start in range(0, total, SENTIMENT_CHUNK_SIZE):
+        chunk_index = positions[start : start + SENTIMENT_CHUNK_SIZE]
+        chunk = merged.loc[chunk_index]
+
+        merged.loc[chunk_index, "score"] = _run_finbert(_article_text(chunk).tolist())
+
+        done = merged.loc[chunk_index, key_cols + ["score"]].copy()
+        done["model"] = SENTIMENT_MODEL
+        done["max_chars"] = MAX_TEXT_CHARS
+        scored_so_far = pd.concat([scored_so_far, done[cache_cols]], ignore_index=True)
+
+        scored_so_far.drop_duplicates(
+            subset=key_cols + ["model", "max_chars"], keep="last"
+        ).to_parquet(SENTIMENT_CACHE, index=False)
+
+        completed = min(start + SENTIMENT_CHUNK_SIZE, total)
+        logger.info(
+            "Checkpoint: %d / %d scored (%.0f%%) — cache saved",
+            completed, total, 100.0 * completed / total,
+        )
+
     return merged
+
+
+@lru_cache(maxsize=1)
+def _classifier():
+    """Built once and reused. Now that scoring runs chunk by chunk this is called
+    repeatedly, and rebuilding the pipeline each time would reload the weights on every
+    checkpoint."""
+    from transformers import pipeline
+
+    logger.info("Loading %s", SENTIMENT_MODEL)
+    return pipeline(
+        "sentiment-analysis", model=SENTIMENT_MODEL, top_k=None, truncation=True
+    )
 
 
 def _run_finbert(texts: list[str]) -> np.ndarray:
     """FinBERT over `texts`, returning p_positive - p_negative per text."""
-    from transformers import pipeline
-
-    logger.info("Scoring %d article(s) with %s", len(texts), SENTIMENT_MODEL)
-    classifier = pipeline(
-        "sentiment-analysis", model=SENTIMENT_MODEL, top_k=None, truncation=True
-    )
-
     out = np.zeros(len(texts), dtype=float)
-    results = classifier(texts, batch_size=SENTIMENT_BATCH_SIZE)
+    results = _classifier()(texts, batch_size=SENTIMENT_BATCH_SIZE)
 
     for i, entry in enumerate(results):
         if isinstance(entry, dict):
