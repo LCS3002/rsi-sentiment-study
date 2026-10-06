@@ -240,8 +240,26 @@ def main() -> None:
     with open(out_path, "w", encoding="utf-8") as fh:
         json.dump(results, fh, indent=2, default=_json_safe)
 
+    # Exhibits are regenerated with the numbers, never separately — a figure drawn from
+    # a previous run sitting beside an updated table is the sort of inconsistency nobody
+    # notices until someone asks about it in an interview.
+    from study.exhibits import build_all
+
+    build_all(results, config.RESULTS_DIR)
+
     report(results)
     print(f"\nWrote {out_path}")
+
+    if not args.smoke:
+        from study.note import build as build_note
+
+        try:
+            note_path = build_note(out_path)
+            print(f"Wrote {note_path}")
+        except KeyError as e:
+            # The note template is prose that lags the data by design; an unresolved
+            # token is a prompt to finish writing, not a reason to lose the results.
+            logger.warning("Note not rendered — %s", e)
 
 
 if __name__ == "__main__":
