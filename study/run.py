@@ -23,6 +23,7 @@ from study.backtest import ARMS, buy_and_hold, run_backtest
 from study.data import load_bars, load_news, trading_calendar, usable_tickers
 from study.metrics import sentiment_bucket_table, subperiod_table, summarise
 from study.signals import build_features, daily_sentiment, score_articles
+from study.validation import validate
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,11 @@ def build(smoke: bool, force_data: bool, force_sentiment: bool) -> pd.DataFrame:
 
 
 def run_all(features: pd.DataFrame, rsi_col: str) -> dict:
-    results: dict = {"arms": {}, "benchmark": {}, "config": {}}
+    results: dict = {"arms": {}, "benchmark": {}, "validation": {}, "config": {}}
+
+    # Interrogate the sentiment input before using its output. If it predicts nothing,
+    # that bounds what any arm built on it can honestly claim.
+    results["validation"] = validate(features)
 
     # ── benchmark ─────────────────────────────────────────────────────────────
     bh_daily = buy_and_hold(features)
@@ -137,6 +142,42 @@ def run_all(features: pd.DataFrame, rsi_col: str) -> dict:
 
 
 def report(results: dict) -> None:
+    validation = results.get("validation", {})
+    if validation:
+        dist = validation.get("distribution", {})
+        print(f"\n{'='*86}")
+        print("SENTIMENT VALIDATION — does the signal predict anything at all?")
+        print(f"{'='*86}")
+        if dist.get("scored_ticker_days"):
+            print(
+                f"coverage {dist['coverage']:.1%} of ticker-days · "
+                f"mean {dist['mean']:+.3f} · sd {dist['std']:.3f} · "
+                f"{dist['share_near_neutral']:.1%} near-neutral"
+            )
+        print(f"\n{'horizon':<10}{'mean IC':>10}{'t (NW)':>9}{'IC IR':>8}{'% days +':>10}{'days':>8}")
+        print("-" * 86)
+        for row in validation.get("information_coefficient", []):
+            if not row.get("days"):
+                continue
+            print(
+                f"{row['horizon_days']:>2}d{'':<7}{row['mean_ic']:>+10.4f}"
+                f"{row['ic_tstat']:>+9.2f}{row['ic_ir']:>8.2f}"
+                f"{row['share_positive']:>10.1%}{row['days']:>8d}"
+            )
+
+        buckets = validation.get("quintile_spread_5d", [])
+        if buckets:
+            print(f"\n{'quintile':<10}{'sentiment':>12}{'5d return':>12}{'hit rate':>11}{'n':>10}")
+            print("-" * 86)
+            for row in buckets:
+                print(
+                    f"Q{row['bucket']:<9}{row['mean_sentiment']:>+12.3f}"
+                    f"{row['mean_forward_return']:>+12.3%}{row['hit_rate']:>11.1%}"
+                    f"{row['observations']:>10,d}"
+                )
+            spread = buckets[-1]["mean_forward_return"] - buckets[0]["mean_forward_return"]
+            print(f"{'Q5 - Q1':<10}{'':<12}{spread:>+12.3%}")
+
     base = str(config.BASE_COST_BPS)
     print(f"\n{'='*86}")
     print(f"HEADLINE — at {config.BASE_COST_BPS:.0f}bps round-trip cost")
