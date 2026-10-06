@@ -53,6 +53,12 @@ def _fmt(value, spec: str | None) -> str:
     if isinstance(value, str):
         return value
 
+    if isinstance(value, (list, tuple)):
+        # a cost grid reads as "0 / 5 / 10 / 20", not as a Python repr
+        return " / ".join(
+            f"{v:g}" if isinstance(v, (int, float)) else str(v) for v in value
+        )
+
     if spec == "pct":
         return f"{value:.2%}"
     if spec == "pct1":
@@ -186,6 +192,19 @@ TABLES = {
 # ── Resolution ────────────────────────────────────────────────────────────────
 
 
+def _cost_key(by_cost: dict, wanted: str) -> str:
+    """Match a token's cost ("20") to the results key ("20.0")."""
+    if wanted in by_cost:
+        return wanted
+    for key in by_cost:
+        try:
+            if float(key) == float(wanted):
+                return key
+        except ValueError:
+            continue
+    raise KeyError(f"no cost level {wanted!r} in results (have {sorted(by_cost)})")
+
+
 def resolve(path: str, results: dict):
     """Resolve one dotted token path against the results payload."""
     parts = path.split(".")
@@ -200,7 +219,10 @@ def resolve(path: str, results: dict):
     if head == "arm":
         arm = results["arms"][parts[1]]
         if len(parts) > 3 and parts[2] == "cost":
-            return arm["by_cost"][parts[3]].get(parts[4])
+            # Cost keys are floats ("20.0"), but a dotted token path cannot carry a
+            # decimal point — "cost.20.0.sharpe" would split into "20" and "0". So the
+            # token writes "cost.20.sharpe" and the key is normalised here.
+            return arm["by_cost"][_cost_key(arm["by_cost"], parts[3])].get(parts[4])
         return arm["by_cost"][str(BASE_COST_BPS)].get(parts[2])
 
     if head == "bench":
