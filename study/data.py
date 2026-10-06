@@ -106,24 +106,60 @@ def usable_tickers(news: pd.DataFrame) -> list[str]:
 
 
 def _flatten_yf(raw: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
-    """yfinance's wide, column-MultiIndex frame → long [ticker, date, ohlcv]."""
-    if raw.empty:
+    """yfinance's wide, column-MultiIndex frame → long [ticker, date, ohlcv].
+
+    Two yfinance quirks this has to absorb, both discovered the hard way:
+
+    · The frame **sometimes** carries an `Adj Close` level alongside `Close` even with
+      `auto_adjust=True` — specifically when one of the requested tickers failed to
+      download, which changes the shape of what comes back. Under `auto_adjust=True`
+      `Close` is already adjusted, so the duplicate is dropped rather than renamed onto
+      it. Renaming would produce two columns called `close`, and every later column
+      access raises "cannot reindex on an axis with duplicate labels".
+
+    · A single ticker comes back with no ticker level at all.
+    """
+    if raw is None or raw.empty:
         return pd.DataFrame(columns=["ticker", "date"] + BAR_COLUMNS)
 
     if isinstance(raw.columns, pd.MultiIndex):
-        # columns are (field, ticker); stack the ticker level into the index
         long = raw.stack(level=1, future_stack=True).reset_index()
-        long.columns = [str(c) for c in long.columns]
-        long = long.rename(columns={long.columns[0]: "date", long.columns[1]: "ticker"})
     else:
-        # single ticker: yfinance omits the ticker level entirely
         long = raw.reset_index()
-        long.columns = [str(c) for c in long.columns]
-        long = long.rename(columns={long.columns[0]: "date"})
+
+    long.columns = [str(c).strip().lower() for c in long.columns]
+
+    # Identify the date and ticker columns by name, falling back to position
+    renames = {}
+    if "date" not in long.columns:
+        for candidate in ("datetime", "index", "level_0"):
+            if candidate in long.columns:
+                renames[candidate] = "date"
+                break
+        else:
+            renames[long.columns[0]] = "date"
+    if "ticker" not in long.columns:
+        for candidate in ("symbol", "level_1"):
+            if candidate in long.columns:
+                renames[candidate] = "ticker"
+                break
+    long = long.rename(columns=renames)
+
+    if "close" in long.columns and "adj close" in long.columns:
+        long = long.drop(columns="adj close")
+    elif "adj close" in long.columns:
+        long = long.rename(columns={"adj close": "close"})
+
+    if "ticker" not in long.columns:
+        if len(tickers) != 1:
+            raise RuntimeError(
+                f"yfinance returned no ticker column for {len(tickers)} tickers"
+            )
         long["ticker"] = tickers[0]
 
-    long.columns = [c.lower() for c in long.columns]
-    long = long.rename(columns={"adj close": "close"})
+    duplicated = long.columns[long.columns.duplicated()].tolist()
+    if duplicated:
+        raise RuntimeError(f"duplicate columns after flattening: {duplicated}")
 
     missing = [c for c in BAR_COLUMNS if c not in long.columns]
     if missing:
