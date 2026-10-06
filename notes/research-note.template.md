@@ -228,11 +228,13 @@ improves.
 pip install -r requirements.txt
 python -m study.run          # regenerates results/results.json and every exhibit
 python -m study.note         # regenerates this note from those results
-pytest -q                    # 85 tests, no network or model required
+pytest -q                    # no network or model required
 ```
 
-Scoring the corpus with FinBERT on CPU takes roughly two hours and is checkpointed every
-{{config.sentiment_chunk_size:int}} articles; everything downstream of it runs in minutes.
+The suite is {{meta.test_count}} test functions across seven files (pytest reports more,
+since several are parametrised). Scoring the corpus with FinBERT on CPU takes roughly two
+hours and is checkpointed every {{config.sentiment_chunk_size:int}} articles; everything
+downstream of it runs in minutes.
 
 **Sources.** Tetlock, P. (2007), "Giving Content to Investor Sentiment: The Role of Media
 in the Stock Market", *Journal of Finance* 62(3). · Nagel, S. (2012), "Evaporating

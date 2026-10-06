@@ -192,6 +192,25 @@ TABLES = {
 # ── Resolution ────────────────────────────────────────────────────────────────
 
 
+def _test_count() -> int:
+    """Count test functions on disk.
+
+    The note claimed "85 tests" as a typed number and was wrong within an hour of
+    writing it. Counting it at render time is the same discipline the note applies to
+    every other figure it reports — a number that can go stale shouldn't be typed.
+
+    This counts test *functions*. pytest reports a larger figure because several are
+    parametrised, so the note says "test functions" rather than quietly borrowing
+    pytest's bigger number.
+    """
+    total = 0
+    for path in sorted((ROOT / "tests").glob("test_*.py")):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.startswith("def test_"):
+                total += 1
+    return total
+
+
 def _cost_key(by_cost: dict, wanted: str) -> str:
     """Match a token's cost ("20") to the results key ("20.0")."""
     if wanted in by_cost:
@@ -209,6 +228,11 @@ def resolve(path: str, results: dict):
     """Resolve one dotted token path against the results payload."""
     parts = path.split(".")
     head = parts[0]
+
+    if head == "meta":
+        if parts[1] == "test_count":
+            return _test_count()
+        raise KeyError(f"unknown meta field {parts[1]!r}")
 
     if head == "table":
         builder = TABLES.get(parts[1])
