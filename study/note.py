@@ -63,6 +63,9 @@ def _fmt(value, spec: str | None) -> str:
         return f"{value:.2%}"
     if spec == "pct1":
         return f"{value:.1%}"
+    if spec == "pct3":
+        # for near-zero quantities, where two decimals would round a real figure away
+        return f"{value:.3%}"
     if spec == "bps":
         return f"{value:.0f}bps"
     if spec == "int":

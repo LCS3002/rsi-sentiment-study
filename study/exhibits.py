@@ -257,19 +257,23 @@ def sentiment_buckets(buckets: pd.DataFrame, out_dir: Path = RESULTS_DIR) -> Pat
     ax.bar(x, values, color=colours, width=0.62, zorder=3,
            edgecolor=SURFACE, linewidth=2.0)   # 2px surface gap between bars
 
-    for i, (value, n) in enumerate(zip(values, buckets["trades"])):
+    for i, value in enumerate(values):
         offset = 4 if value >= 0 else -4
         ax.annotate(f"{value:+.2f}%", xy=(i, value), xytext=(0, offset),
                     textcoords="offset points", ha="center",
                     va="bottom" if value >= 0 else "top",
                     color=INK_PRIMARY, fontsize=9, fontweight="bold")
-        ax.annotate(f"n={n:,}", xy=(i, 0), xytext=(0, -14 if value >= 0 else 8),
-                    textcoords="offset points", ha="center",
-                    color=INK_MUTED, fontsize=8)
 
     ax.axhline(0.0, color=INK_SECONDARY, linewidth=1.1, zorder=4)
     ax.set_xticks(list(x))
-    ax.set_xticklabels([f"{s:+.2f}" for s in buckets["mean_sentiment"]])
+    # Sample size goes in the tick label rather than floating near the axis, where it
+    # collided with the tick text whenever a bar sat close to zero.
+    ax.set_xticklabels(
+        [
+            f"{s:+.2f}\nn={n:,}"
+            for s, n in zip(buckets["mean_sentiment"], buckets["trades"])
+        ]
+    )
     _style_axes(ax, ylabel="Mean net return per trade (%)",
                 xlabel="Mean news sentiment at signal (negative → positive)")
     _title(ax, "Does sentiment at entry predict the outcome?",

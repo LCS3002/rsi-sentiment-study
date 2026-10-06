@@ -1,13 +1,33 @@
 # Does news sentiment improve an RSI mean-reversion signal?
 
-A walk-forward study on 86 US large caps, 2010–2023, with transaction costs.
+A walk-forward study on 84 US large caps, 2010–2023, with transaction costs.
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
-![Articles](https://img.shields.io/badge/articles-105%2C493-informational)
-![Universe](https://img.shields.io/badge/universe-86%20large%20caps-informational)
+![Articles](https://img.shields.io/badge/articles-103%2C036-informational)
+![Universe](https://img.shields.io/badge/universe-84%20large%20caps-informational)
+![Result](https://img.shields.io/badge/result-null-lightgrey)
 
-> **Status:** engine complete and tested; full-sample results pending. See
-> [`notes/research-note.md`](notes/research-note.md) for the write-up.
+## The finding
+
+**It does not.** Conditioning RSI entries on news sentiment moved Sharpe from **0.56 to
+0.54** and annual return from **6.28% to 5.42%**.
+
+The reason sits one layer down: the sentiment score has **no measurable predictive power**
+in this sample. Its information coefficient against five-day forward returns is **+0.0053
+(t = 1.12)**, and sorting entries into sentiment quintiles gives a top-minus-bottom spread
+of **−0.005%**. A filter cannot work through a channel carrying no information.
+
+The falsification arm sharpens it rather than rescuing it: the oversold days the filter
+*removes* returned **+0.91% per trade** against **+0.79%** for the days it keeps. The
+entries the hypothesis calls traps were, on average, the better trades.
+
+One real effect survives — the filter cuts the **tail**, not the mean. Maximum drawdown
+improved from −28.5% to −24.3% and the worst single trade from −54.8% to −31.4%. That is a
+risk trade, not an edge.
+
+And none of it beat simply holding the universe: **24.09% a year at Sharpe 1.15**.
+
+📄 **[Read the research note](notes/research-note.md)**
 
 ---
 
@@ -79,9 +99,9 @@ borrow cost and availability modelled to mean anything.
 
 | | |
 |---|---|
-| News | [`oliverwang15/us_stock_news_with_price`](https://huggingface.co/datasets/oliverwang15/us_stock_news_with_price) — 105,493 articles after dedup, 2009-12-14 to 2023-10-23 |
+| News | [`oliverwang15/us_stock_news_with_price`](https://huggingface.co/datasets/oliverwang15/us_stock_news_with_price) — 103,036 articles in the study window, 2010-01-04 to 2023-10-23 |
 | Bars | yfinance daily, `auto_adjust=True` |
-| Universe | 86 of 100 tickers clearing ≥200 articles and ≥3 years |
+| Universe | 84 names — 86 clear the article and span thresholds; EA and WBA no longer trade |
 | Sentiment | `ProsusAI/finbert`, scored as a continuous `p_positive − p_negative` in [−1, 1], EWMA with a 3-day half-life |
 
 Bars come from yfinance rather than the dataset's bundled price columns, so the adjustment
@@ -97,8 +117,8 @@ Stated here rather than buried, because they bound what the result can mean.
   from a recent index membership. Companies that failed or were delisted are absent, so the
   benchmark in particular is flattered.
 - **Sector concentration.** The universe is NASDAQ/technology-heavy (AAPL, GOOG, AMZN,
-  MSFT, NVDA, INTC, AMD, plus biotech). These names share a strong common factor, so 86
-  tickers provide materially less independent information than 86 names normally would.
+  MSFT, NVDA, INTC, AMD, plus biotech). These names share a strong common factor, so 84
+  tickers provide materially less independent information than 84 names normally would.
 - **Coverage bias.** News coverage skews toward large caps and toward eventful days. A name
   with no article is not a name about which nothing happened.
 - **FinBERT is not ground truth.** `ProsusAI/finbert` is fine-tuned on the Financial
