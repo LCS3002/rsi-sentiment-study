@@ -15,10 +15,13 @@ split in the sample.
 from __future__ import annotations
 
 import logging
+import time
 
 import pandas as pd
 
 from study.config import (
+    BAR_FETCH_ATTEMPTS,
+    BAR_RETRY_DELAY_SECONDS,
     BAR_WARMUP_DAYS,
     BARS_CACHE,
     DATA_DIR,
@@ -171,64 +174,111 @@ def _flatten_yf(raw: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
     return long[["ticker", "date"] + BAR_COLUMNS]
 
 
-def load_bars(
-    tickers: list[str],
-    start: str | pd.Timestamp,
-    end: str | pd.Timestamp,
-    force: bool = False,
-) -> pd.DataFrame:
-    """Adjusted daily bars as [ticker, date, open, high, low, close, volume].
-
-    `start` is pulled back by BAR_WARMUP_DAYS so indicators are already warm on the first
-    day any signal could fire — otherwise the earliest trades would be taken on a
-    half-formed RSI.
-    """
-    cache_key = BARS_CACHE
-    if cache_key.exists() and not force:
-        cached = pd.read_parquet(cache_key)
-        have = set(cached["ticker"].unique())
-        if set(tickers).issubset(have):
-            logger.info("Loading cached bars from %s", cache_key)
-            return cached[cached["ticker"].isin(tickers)].reset_index(drop=True)
-        logger.info("Cache is missing %d ticker(s) — refetching",
-                    len(set(tickers) - have))
-
+def _download(tickers: list[str], start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
     import yfinance as yf
-
-    fetch_start = pd.Timestamp(start) - pd.Timedelta(days=BAR_WARMUP_DAYS)
-    # yfinance treats `end` as exclusive
-    fetch_end = pd.Timestamp(end) + pd.Timedelta(days=1)
-
-    logger.info("Downloading bars for %d ticker(s), %s to %s",
-                len(tickers), fetch_start.date(), pd.Timestamp(end).date())
 
     raw = yf.download(
         tickers,
-        start=fetch_start.strftime("%Y-%m-%d"),
-        end=fetch_end.strftime("%Y-%m-%d"),
+        start=start.strftime("%Y-%m-%d"),
+        end=end.strftime("%Y-%m-%d"),
         auto_adjust=True,      # adjusts O/H/L/C on one basis — see module docstring
         progress=False,
         group_by="column",
         threads=True,
     )
-
     bars = _flatten_yf(raw, tickers)
     bars = bars.dropna(subset=["open", "close"])
     bars = bars[bars["close"] > 0]
-    bars = bars.drop_duplicates(subset=["ticker", "date"])
-    bars = bars.sort_values(["ticker", "date"]).reset_index(drop=True)
+    return bars.drop_duplicates(subset=["ticker", "date"])
 
-    got = bars["ticker"].nunique()
-    if got < len(tickers):
+
+def load_bars(
+    tickers: list[str],
+    start: str | pd.Timestamp,
+    end: str | pd.Timestamp,
+    force: bool = False,
+    attempts: int = BAR_FETCH_ATTEMPTS,
+) -> pd.DataFrame:
+    """Adjusted daily bars as [ticker, date, open, high, low, close, volume].
+
+    `start` is pulled back by BAR_WARMUP_DAYS so indicators are warm on the first day a
+    signal could fire — otherwise the earliest trades run on a half-formed RSI.
+
+    Two behaviours that exist because of a specific failure. Yahoo intermittently returns
+    "possibly delisted; no price data found" for names that are plainly listed — MSFT came
+    back empty on one run — so tickers that come back short are retried individually
+    before being given up on. And new bars are **merged into** the cache rather than
+    replacing it, so a bad fetch can never delete good data that is already there. The
+    earlier version did neither, and silently dropped MSFT from an 86-name universe.
+    """
+    requested = sorted(set(tickers))
+    fetch_start = pd.Timestamp(start) - pd.Timedelta(days=BAR_WARMUP_DAYS)
+    fetch_end = pd.Timestamp(end) + pd.Timedelta(days=1)  # yfinance `end` is exclusive
+
+    cached = pd.DataFrame(columns=["ticker", "date"] + BAR_COLUMNS)
+    if BARS_CACHE.exists() and not force:
+        cached = pd.read_parquet(BARS_CACHE)
+
+    have = set(cached["ticker"].unique())
+    missing = [t for t in requested if t not in have]
+
+    if not missing:
+        logger.info("Loading cached bars from %s", BARS_CACHE)
+        return cached[cached["ticker"].isin(requested)].reset_index(drop=True)
+
+    logger.info(
+        "Downloading bars for %d ticker(s), %s to %s",
+        len(missing), fetch_start.date(), pd.Timestamp(end).date(),
+    )
+    fetched = _download(missing, fetch_start, fetch_end)
+    still_missing = [t for t in missing if t not in set(fetched["ticker"].unique())]
+
+    # Retry one at a time: a batch request that partially fails tends to succeed when the
+    # stragglers are asked for on their own.
+    for attempt in range(2, attempts + 1):
+        if not still_missing:
+            break
         logger.warning(
-            "Bars returned for %d of %d requested tickers — %s had none",
-            got, len(tickers), sorted(set(tickers) - set(bars["ticker"].unique())),
+            "Attempt %d: retrying %d ticker(s) individually — %s",
+            attempt, len(still_missing), still_missing,
+        )
+        recovered = []
+        for ticker in still_missing:
+            time.sleep(BAR_RETRY_DELAY_SECONDS)
+            one = _download([ticker], fetch_start, fetch_end)
+            if not one.empty:
+                fetched = pd.concat([fetched, one], ignore_index=True)
+                recovered.append(ticker)
+        still_missing = [t for t in still_missing if t not in recovered]
+        if recovered:
+            logger.info("Recovered on retry: %s", recovered)
+
+    if still_missing:
+        logger.warning(
+            "No price data after %d attempts for %s — excluded from the universe. "
+            "Verify these are genuinely delisted rather than a transient API failure.",
+            attempts, still_missing,
         )
 
+    # Union, keeping whatever was already cached — a failed fetch must never delete data
+    pieces = [frame for frame in (cached, fetched) if not frame.empty]
+    bars = (
+        pd.concat(pieces, ignore_index=True)
+        if pieces
+        else pd.DataFrame(columns=["ticker", "date"] + BAR_COLUMNS)
+    )
+    bars = (
+        bars.drop_duplicates(subset=["ticker", "date"], keep="last")
+        .sort_values(["ticker", "date"])
+        .reset_index(drop=True)
+    )
+
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    bars.to_parquet(cache_key, index=False)
-    logger.info("Bars: %d rows across %d tickers", len(bars), got)
-    return bars
+    bars.to_parquet(BARS_CACHE, index=False)
+
+    out = bars[bars["ticker"].isin(requested)].reset_index(drop=True)
+    logger.info("Bars: %d rows across %d tickers", len(out), out["ticker"].nunique())
+    return out
 
 
 def trading_calendar(bars: pd.DataFrame) -> pd.DatetimeIndex:

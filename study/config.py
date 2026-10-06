@@ -42,6 +42,13 @@ MIN_YEARS_PER_TICKER = 3.0
 # yfinance needs a little runway before the first news date to warm up the indicators.
 BAR_WARMUP_DAYS = 90
 
+# Yahoo intermittently reports a listed name as "possibly delisted" - MSFT came back
+# empty on one run. Tickers that come back short are retried individually before being
+# dropped, because silently losing a major name would change the result without
+# changing anything visible.
+BAR_FETCH_ATTEMPTS = 3
+BAR_RETRY_DELAY_SECONDS = 2.0
+
 # ── Sentiment ─────────────────────────────────────────────────────────────────
 
 SENTIMENT_MODEL = "ProsusAI/finbert"

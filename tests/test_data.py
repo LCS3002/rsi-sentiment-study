@@ -87,6 +87,76 @@ def test_missing_price_columns_raise_rather_than_pass_silently():
         _flatten_yf(raw, ["AAA"])
 
 
+def test_a_failed_fetch_never_deletes_already_cached_tickers(tmp_path, monkeypatch):
+    """Regression: the cache used to be overwritten with whatever the latest download
+    returned. Yahoo intermittently reports a listed name as delisted — MSFT came back
+    empty on one run — so a transient failure silently erased it from an 86-name
+    universe, and nothing downstream noticed."""
+    import study.data as data
+
+    cache = tmp_path / "bars.parquet"
+    monkeypatch.setattr(data, "BARS_CACHE", cache)
+    monkeypatch.setattr(data, "DATA_DIR", tmp_path)
+
+    good = _flatten_yf(_wide(["AAA", "BBB"], STANDARD, n=10), ["AAA", "BBB"])
+    good.to_parquet(cache, index=False)
+
+    # the next fetch asks for a third ticker and gets nothing back at all
+    monkeypatch.setattr(
+        data, "_download",
+        lambda tickers, start, end: pd.DataFrame(
+            columns=["ticker", "date"] + BAR_COLUMNS
+        ),
+    )
+    monkeypatch.setattr(data.time, "sleep", lambda _: None)
+
+    out = data.load_bars(["AAA", "BBB", "CCC"], "2022-01-03", "2022-01-14", attempts=2)
+
+    assert set(out["ticker"]) == {"AAA", "BBB"}, "CCC is absent, but AAA/BBB must survive"
+    assert set(pd.read_parquet(cache)["ticker"]) == {"AAA", "BBB"}
+
+
+def test_a_missing_ticker_is_retried_individually(tmp_path, monkeypatch):
+    """A batch request that partially fails usually succeeds when the straggler is asked
+    for on its own, so give up only after retrying."""
+    import study.data as data
+
+    monkeypatch.setattr(data, "BARS_CACHE", tmp_path / "bars.parquet")
+    monkeypatch.setattr(data, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(data.time, "sleep", lambda _: None)
+
+    calls = []
+
+    def flaky(tickers, start, end):
+        calls.append(list(tickers))
+        if len(tickers) > 1:                 # the batch call drops BBB
+            return _flatten_yf(_wide(["AAA"], STANDARD, n=5), ["AAA"])
+        return _flatten_yf(_wide(list(tickers), STANDARD, n=5), list(tickers))
+
+    monkeypatch.setattr(data, "_download", flaky)
+    out = data.load_bars(["AAA", "BBB"], "2022-01-03", "2022-01-10", attempts=3)
+
+    assert set(out["ticker"]) == {"AAA", "BBB"}, "BBB must be recovered on retry"
+    assert ["BBB"] in calls, "the straggler should be retried on its own"
+
+
+def test_cache_satisfies_the_request_without_refetching(tmp_path, monkeypatch):
+    """A cache holding everything asked for must not trigger a download — otherwise
+    permanently-unavailable tickers make every run refetch forever."""
+    import study.data as data
+
+    cache = tmp_path / "bars.parquet"
+    monkeypatch.setattr(data, "BARS_CACHE", cache)
+    monkeypatch.setattr(data, "DATA_DIR", tmp_path)
+    _flatten_yf(_wide(["AAA"], STANDARD, n=8), ["AAA"]).to_parquet(cache, index=False)
+
+    def explode(*_args, **_kwargs):
+        raise AssertionError("should not download when the cache already has it")
+
+    monkeypatch.setattr(data, "_download", explode)
+    assert len(data.load_bars(["AAA"], "2022-01-03", "2022-01-14")) == 8
+
+
 def test_usable_tickers_applies_both_thresholds():
     """A name needs enough articles *and* enough span; either alone is not enough."""
     rows = []
