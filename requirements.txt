@@ -1,0 +1,8 @@
+# Requires Python 3.10+
+pandas>=2.0
+numpy>=1.26
+pyarrow>=14.0          # parquet caching
+yfinance>=0.2.60       # daily bars
+datasets>=2.18         # news corpus from HuggingFace
+transformers>=4.40     # FinBERT
+torch>=2.0

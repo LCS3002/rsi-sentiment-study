@@ -1,0 +1,4 @@
+-r requirements.txt
+pytest>=8.0
+statsmodels>=0.14      # only to cross-check the Newey-West implementation in tests
+matplotlib>=3.8        # exhibits
