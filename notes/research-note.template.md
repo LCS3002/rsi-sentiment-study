@@ -2,7 +2,7 @@
 
 **A walk-forward study on {{config.tickers}} US large caps, {{config.start}} to {{config.end}}, with transaction costs.**
 
-Lorenz Huber · [github.com/LCS3002/rsi-sentiment-study](https://github.com/LCS3002/rsi-sentiment-study)
+Lorenz Huber · [github.com/LCS3002/rsi-sentiment-trading-study](https://github.com/LCS3002/rsi-sentiment-trading-study)
 
 > Every figure in this note is generated from `results/results.json` by `study/note.py`.
 > None is transcribed by hand, and `python -m study.note --check` fails if the note and
