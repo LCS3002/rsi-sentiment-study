@@ -33,13 +33,13 @@ One thing the filter did do: it cut the tail. Maximum drawdown improved from
 {{arm.rsi.max_drawdown:pct}} to {{arm.rsi_filtered.max_drawdown:pct}}, volatility from
 {{arm.rsi.volatility:pct}} to {{arm.rsi_filtered.volatility:pct}}, and the worst single
 trade from {{arm.rsi.worst_trade:pct}} to {{arm.rsi_filtered.worst_trade:pct}}. That is a
-real effect, and it is a risk trade rather than an edge — you give up mean return to buy
-a thinner left tail.
+real effect, but it is a risk trade rather than an edge: you give up mean return in
+exchange for a thinner left tail.
 
 **None of it came close to simply holding the universe,** which returned
 {{bench.cagr:pct}} a year at a Sharpe of {{bench.sharpe}} over the same period. That
-comparison deserves its caveat — the strategy sits in cash most of the time — but it is
-not close enough for the caveat to rescue it.
+comparison needs a caveat — the strategy sits in cash most of the time — but the gap is
+too wide for that to account for it.
 
 ---
 
@@ -115,7 +115,7 @@ assembled from a recent index membership has already lost the companies that lef
 
 ## 3. Method
 
-Three commitments do most of the work. Each is enforced by a test rather than asserted here.
+Three rules do most of the work, and each is enforced by a test rather than simply stated.
 
 **No parameters were tuned.** Every value in `study/config.py` is a convention fixed before
 any result was computed: RSI 14 with 30/70 thresholds is Wilder's original, RSI(2) with
@@ -126,14 +126,14 @@ you know this isn't overfitted?"
 
 **Signals execute at the next open.** A signal computed from the close of day D is executed
 at the open of D+1. The delay is carried in the data as an explicit `next_open` column
-rather than applied inside the backtest loop, so it is visible instead of trusted. Two
+rather than applied inside the backtest loop, so it can be inspected directly. Two
 tests enforce it: no entry may precede its own signal, and perturbing the last twenty days
 of prices must leave every earlier daily return bit-identical. Both were verified to fail
 against a deliberately introduced same-day-execution bug.
 
 News dated day D is likewise actionable only from D+1. The corpus carries date-level
-timestamps with no time of day, so this is a requirement rather than a conservatism — there
-is no way to know whether a story broke before the open or after the close.
+timestamps with no time of day, so this is forced rather than cautious: there is no way to
+know whether a story broke before the open or after the close.
 
 **Costs are charged, and the study is reported across a grid** of {{config.cost_grid_bps}}
 basis points round trip, with {{config.base_cost_bps:.0f}}bps as the headline. The point is to
@@ -183,9 +183,8 @@ market-wide move that happens to coincide with generally good news.
 
 **There is nothing here.** The information coefficient is between
 {{validation.ic.1.mean_ic:sig4}} and {{validation.ic.20.mean_ic:sig4}} depending on
-horizon, which is small before significance even enters the picture: an IC of 0.005 *is*
-the rank correlation between today's sentiment and the next five days of returns — half of
-one percent. None of the three horizons
+horizon. That is small before significance is even considered: an IC of 0.005 is a rank
+correlation of half of one percent between today's sentiment and the next five days. None of the three horizons
 clears conventional significance once standard errors account for the overlap, and the
 t-statistic *falls* as the horizon lengthens ({{validation.ic.1.ic_tstat}} at one day,
 {{validation.ic.20.ic_tstat}} at twenty) — the opposite of what a real slow-decaying
@@ -195,8 +194,8 @@ The quintile table says the same thing more legibly. Sorting every RSI entry by 
 positive the news was produces five buckets whose five-day returns sit between
 +0.42% and +0.50%, in no particular order. The most *negative* quintile returned slightly
 **more** than the most positive, a top-minus-bottom spread of
-{{validation.quintile_spread:pct3}} — which is to say nothing, carrying the sign that would
-embarrass the hypothesis if it were large enough to mean anything.
+{{validation.quintile_spread:pct3}}. That is indistinguishable from zero, and the sign
+points the wrong way for the hypothesis.
 
 Two features of the score itself are worth recording. Coverage is high at
 {{validation.dist.coverage:pct1}} of ticker-days, so this is not a sparsity problem. And
@@ -206,8 +205,8 @@ strongly negative, with a mean of {{validation.dist.mean:sig4}}. A model that ca
 financial news good news has limited room to flag the bad.
 
 This bounds everything that follows. Whatever the strategy results show, they cannot be
-evidence that sentiment carries tradeable information — because measured directly against
-returns, in 270,184 ticker-days, it does not.
+evidence that sentiment carries tradeable information, because measured directly against
+returns across 270,184 ticker-days it does not.
 
 ---
 
@@ -267,17 +266,16 @@ arm — {{arm.sentiment.cost.0.sharpe}}, better than RSI's {{arm.rsi.cost.0.shar
 {{arm.sentiment.cost.20.sharpe}}. Nothing about the signal changed; it simply trades
 {{arm.sentiment.trades:int}} times with an average holding period of
 {{arm.sentiment.avg_days_held}} days, and an average trade of
-{{arm.sentiment.avg_trade:pct}} does not survive paying a spread twice. Anyone reporting
-this strategy gross would report an edge. There is no edge.
+{{arm.sentiment.avg_trade:pct}} does not survive paying a spread twice. Reported gross, this strategy looks like an edge. It is not one.
 
 **The RSI arms are robust to cost** precisely because they trade so little:
 {{arm.rsi.trades:int}} trades over fourteen years, holding {{arm.rsi.avg_days_held}} days,
 so Sharpe decays only from {{arm.rsi.cost.0.sharpe}} to {{arm.rsi.cost.20.sharpe}} across
 the whole grid. Whatever is wrong with this strategy, frictions are not it.
 
-That contrast is the practical lesson of the study, and it is independent of the
-hypothesis: a signal's cost sensitivity is a property of its turnover, and a backtest
-reported gross tells you nothing about which of these two situations you are in.
+That contrast is the practical lesson of the study, independent of the hypothesis: cost
+sensitivity is a property of turnover, and a backtest reported gross cannot tell you which
+of these two cases you are looking at.
 
 ### The mechanism
 
