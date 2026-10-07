@@ -1,97 +1,138 @@
-# Does news sentiment improve an RSI mean-reversion signal?
+# Does news sentiment improve a dip-buying strategy?
 
-A walk-forward study on 84 US large caps, 2010–2023, with transaction costs.
+A study of 84 large US companies, 2010–2023, using 103,036 news articles — with trading
+costs included.
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![Articles](https://img.shields.io/badge/articles-103%2C036-informational)
 ![Universe](https://img.shields.io/badge/universe-84%20large%20caps-informational)
 ![Result](https://img.shields.io/badge/result-null-lightgrey)
 
+## The idea
+
+Some shares fall for no particular reason — a large holder needed cash that day, and there
+weren't enough buyers at that moment. Those tend to bounce back. Other shares fall because
+something genuinely happened: bad earnings, a lawsuit, a failed product. Those don't
+bounce, because the lower price is correct.
+
+**If you could tell the two apart, you would only buy the first kind.**
+
+This tests whether news sentiment can tell them apart. The strategy buys shares that have
+fallen sharply, but skips the ones where the news that day was bad.
+
 ## The finding
 
-**It does not.** Conditioning RSI entries on news sentiment moved Sharpe from **0.56 to
-0.54** and annual return from **6.28% to 5.42%**.
+**It doesn't work.** Skipping the bad-news dips made things slightly worse:
 
-The reason sits one layer down: the sentiment score has **no measurable predictive power**
-in this sample. Its information coefficient against five-day forward returns is **+0.0053
-(t = 1.12)**, and sorting entries into sentiment quintiles gives a top-minus-bottom spread
-of **−0.005%**. A filter cannot work through a channel carrying no information.
+- Buying every dip: **6.28%** a year
+- Buying dips but skipping bad-news ones: **5.42%** a year
 
-The falsification arm sharpens it rather than rescuing it: the oversold days the filter
-*removes* returned **+0.91% per trade** against **+0.79%** for the days it keeps. The
-entries the hypothesis calls traps were, on average, the better trades.
+### Why it doesn't work
 
-One real effect survives — the filter cuts the **tail**, not the mean. Maximum drawdown
-improved from −28.5% to −24.3% and the worst single trade from −54.8% to −31.4%. That is a
-risk trade, not an edge.
+Because the sentiment signal doesn't predict anything to begin with.
 
-And none of it beat simply holding the universe: **24.09% a year at Sharpe 1.15**.
+Checked directly: on each day, rank every company by how positive its news was, then see
+whether the better-rated ones did better over the following week. They didn't. The most
+negative fifth returned +0.49%. The most positive fifth returned +0.49%. Flat.
 
-📄 **[Read the research note](notes/research-note.md)**
+**You cannot filter using a signal that carries no information.** That's the result, and
+it explains the outcome rather than just reporting it.
+
+### The test designed to prove the idea wrong
+
+A fourth version buys *only* the dips the filter rejects — the ones with bad news. If the
+theory held, these should be the worst trades in the study.
+
+They weren't. They returned **+0.91% per trade**, against **+0.79%** for the trades the
+filter kept. The trades the theory said to avoid were slightly better ones.
+
+Building the version that could prove you wrong, rather than only the version that might
+prove you right, is what makes the conclusion trustworthy.
+
+### One real effect did survive
+
+The filter didn't improve average returns, but it did reduce the worst outcomes. The
+largest peak-to-trough loss improved from −28.5% to −24.3%, and the single worst trade
+from −54.8% to −31.4%.
+
+So it buys you a smoother ride, not a better return. That's a trade-off, not an advantage.
+
+### And nothing beat simply buying and holding
+
+Holding all 84 companies returned **24% a year**. The best strategy returned 6%.
+
+Part of that is because the strategy sits in cash most of the time — it holds about 3 of
+its 20 available slots on average. But even adjusting for that, buy-and-hold wins. Measured
+as return per unit of risk (the **Sharpe ratio** — annual return divided by how much the
+returns bounce around), it's 1.15 against 0.56.
+
+📄 **[Read the full write-up](notes/research-note.md)**
+
+![Equity curves](results/exhibit_1_equity_curves.png)
 
 ---
 
-## The question
+## Why publish a result that didn't work
 
-Short-term RSI mean reversion buys names that have fallen. Some of those declines are
-noise — a liquidity imbalance that reverts — and some are information, where the price
-fell because something happened and it is not coming back.
+Most trading strategies posted publicly claim to work. Most are wrong, usually for one of
+three reasons: they accidentally used information that wasn't available at the time, they
+ignored trading costs, or they tried many versions and published the one that happened to
+look good.
 
-**Hypothesis.** An oversold reading is a buy when the decline is *uninformed* and a trap
-when it is *informed*. Conditioning RSI entries on news sentiment should therefore raise
-the hit rate and cut the left tail, at the cost of fewer trades.
+This was built so none of those could happen. The honest answer is that the idea doesn't
+work — which is more useful than another strategy claiming returns it can't support.
 
-This sits on two established results: Tetlock (2007) on media sentiment predicting returns,
-and Nagel (2012) on short-term reversal returns as compensation for liquidity provision.
-The contribution here is not the idea — it is measuring honestly whether the combination
-survives costs.
+---
 
-## The four arms
+## The four versions tested
 
-The comparison *is* the result, so each arm isolates one thing:
-
-| Arm | Entry rule | What it tests |
+| Version | What it buys | Why it's here |
 |---|---|---|
-| `rsi` | RSI(14) < 30 | The baseline reversal signal alone |
-| `sentiment` | sentiment > +0.20 | Sentiment alone, with no reversal signal |
-| `rsi_filtered` | RSI < 30 **and not** sentiment < −0.20 | **The hypothesis** — buy the dip unless the news is bad |
-| `rsi_negative_news` | RSI < 30 **and** sentiment < −0.20 | **The falsification arm** — exactly the trades the filter removed |
+| **RSI alone** | Any share that has fallen sharply | Does dip-buying work at all? |
+| **Sentiment alone** | Any share with positive news | Does sentiment work on its own? |
+| **RSI + filter** | Fallen shares, *unless* the news is bad | **The actual idea** |
+| **RSI on bad news** | Fallen shares *only when* the news is bad | **The test designed to disprove it** |
 
-Plus equal-weight buy-and-hold as the benchmark.
+Plus buying and holding everything, as the benchmark.
 
-That last arm is the one that makes the study falsifiable. If the mechanism is real,
-`rsi_negative_news` should be materially worse than `rsi_filtered`. If the two are
-indistinguishable, the filter is not working through the channel the hypothesis claims,
-whatever the headline Sharpe says.
+**RSI** is a standard measure between 0 and 100 of how much a share has risen or fallen
+recently. Below 30 means it has dropped sharply. It isn't predictive on its own — it's a
+consistent, mechanical way of saying "this has fallen".
+
+A company with *no* news counts as a normal dip and passes the filter, since the theory
+says an unexplained fall is the kind worth buying.
 
 ---
 
-## Method
+## How the study avoids fooling itself
 
-Three commitments do most of the work, and each is enforced by a test rather than asserted
-in prose.
+Three rules do most of the work, and each is enforced by a test rather than just stated.
 
-**No parameters were tuned.** Every number in `study/config.py` was fixed from convention
-before any result was computed — RSI 14 and 30/70 are Wilder's, RSI(2) with 10/90 is
-Connors', a 5-day hold is the standard short-reversal horizon. There is no in-sample
-optimisation because there is no optimisation at all. With one researcher and one dataset,
-that is the only honest answer to "how do you know this isn't overfitted?"
+**Nothing is traded before it is known.** A signal appearing at Monday's close is traded at
+Tuesday's opening price, never Monday's. Two tests enforce this: one checks no position can
+open before its signal exists, and one changes the final 20 days of prices and confirms
+every earlier day's result is unchanged. Both were verified by deliberately introducing a
+same-day-trading bug and confirming the tests caught it.
 
-**Next-open execution.** A signal computed from the close of day D executes at the **open
-of D+1**. The delay is carried in the data as an explicit `next_open` column rather than
-applied inside the backtest loop, so it is visible instead of trusted. News dated day D is
-treated as actionable from D+1 — and since the corpus carries date-level timestamps with no
-time of day, that is a requirement, not a conservatism.
+News works the same way. A story dated Monday is only tradeable from Tuesday — and since
+the articles carry dates but not times, there's no way to know whether a story broke before
+the market opened or after it closed.
 
-**Costs are charged, and the whole study is reported across a cost grid** of 0 / 5 / 10 /
-20 bps round trip, with 10 bps as the headline. The point is to show where the edge dies.
+**Trading costs are charged**, and the whole study is reported at 0, 5, 10 and 20 basis
+points per round trip (a basis point is one hundredth of a percent). This matters a lot for
+one version: sentiment-alone had the *best* risk-adjusted return of anything at zero cost,
+and went negative by 20 basis points, because it traded 38,000 times. Reported without
+costs, it would have looked like a winner.
 
-Capital is divided into fixed slots (20), each trade taking one, with unused slots earning
-zero. The tempting alternative — equal-weighting whatever happens to be open — silently
-levers up when few signals fire and makes the Sharpe incomparable with buy-and-hold.
+**Nothing was tuned.** Every setting is a standard textbook value fixed before the study
+ran — RSI of 14 with thresholds at 30 and 70 is the original 1978 definition, and the
+five-day holding period is the conventional one. There was no optimisation, so there is
+nothing that could have been overfitted to the data.
 
-Long only: the hypothesis is about buying dips, and claiming short results would need
-borrow cost and availability modelled to mean anything.
+Money is split into 20 equal slots, one per position, with unused slots earning nothing.
+The alternative — splitting capital across however many positions happen to be open —
+quietly increases risk whenever few signals fire, and makes the comparison against
+buy-and-hold meaningless.
 
 ---
 
@@ -99,53 +140,29 @@ borrow cost and availability modelled to mean anything.
 
 | | |
 |---|---|
-| News | [`oliverwang15/us_stock_news_with_price`](https://huggingface.co/datasets/oliverwang15/us_stock_news_with_price) — 103,036 articles in the study window, 2010-01-04 to 2023-10-23 |
-| Bars | yfinance daily, `auto_adjust=True` |
-| Universe | 84 names — 86 clear the article and span thresholds; EA and WBA no longer trade |
-| Sentiment | `ProsusAI/finbert`, scored as a continuous `p_positive − p_negative` in [−1, 1], EWMA with a 3-day half-life |
+| News | 103,036 articles, 2010–2023, from a public dataset |
+| Share prices | Daily, adjusted for splits and dividends |
+| Companies | 84 large US companies |
+| Sentiment | FinBERT, a language model trained to read financial text |
 
-Bars come from yfinance rather than the dataset's bundled price columns, so the adjustment
-basis is known and real **opens** are available. `auto_adjust=True` adjusts open, high, low
-and close on one basis — mixing adjusted closes with raw opens would manufacture a return
-at every split in the sample.
+Sentiment is scored continuously from −1 to +1 rather than as positive/negative/neutral, so
+a barely-positive story and a strongly positive one aren't treated the same.
 
-### Known limitations
+### What this study can't tell you
 
-Stated here rather than buried, because they bound what the result can mean.
-
-- **Survivorship bias.** The universe is names present in the corpus, which was assembled
-  from a recent index membership. Companies that failed or were delisted are absent, so the
-  benchmark in particular is flattered.
-- **Sector concentration.** The universe is NASDAQ/technology-heavy (AAPL, GOOG, AMZN,
-  MSFT, NVDA, INTC, AMD, plus biotech). These names share a strong common factor, so 84
-  tickers provide materially less independent information than 84 names normally would.
-- **Coverage bias.** News coverage skews toward large caps and toward eventful days. A name
-  with no article is not a name about which nothing happened.
-- **FinBERT is not ground truth.** `ProsusAI/finbert` is fine-tuned on the Financial
-  PhraseBank, so evaluating it against that benchmark would measure nothing. It is also
-  easy to surprise — "Apple traded flat" scores as 92% negative. Treat its output as a
-  noisy feature.
-- **Date-level timestamps.** No intraday precision, so this cannot distinguish a story that
-  broke pre-open from one that broke after the close.
+- **Survivorship.** The company list comes from a recent index, so firms that failed or
+  were taken over are missing. Two of them — EA and Walgreens — stopped trading during the
+  period studied, which is the bias happening in miniature.
+- **Sector concentration.** The list is technology-heavy. Those companies move together, so
+  84 of them carry less independent information than 84 unrelated companies would.
+- **Coverage.** News coverage favours large companies and eventful days. A company with no
+  article isn't a company where nothing happened.
+- **The sentiment model is imperfect.** FinBERT rates roughly 40% of financial news as
+  clearly positive against 11% clearly negative. A model that thinks most news is good news
+  has limited room to flag the bad. It also calls "Apple traded flat" 92% negative.
+- **One market, one period.** US large companies during an unusually strong decade.
 
 ---
-
-## Running it
-
-```bash
-pip install -r requirements.txt
-
-python -m study.run --smoke     # 5 tickers, 2 years — exercises every path
-python -m study.run             # full universe
-python -m study.run --rsi 2     # RSI(2) instead of RSI(14)
-```
-
-Everything is written to `results/` as JSON and CSV. The note cites those files rather
-than transcribing numbers by hand, so a stale figure in the write-up is not possible.
-
-> **Runtime.** Scoring the full corpus with FinBERT on CPU is the slow step — roughly
-> 6 articles/sec, so about 4–5 hours for 105k articles. It is cached to parquet afterwards
-> and never repeats. `--smoke` takes minutes.
 
 ## Tests
 
@@ -154,22 +171,33 @@ pip install -r requirements-dev.txt
 pytest -q
 ```
 
-| File | Covers |
-|---|---|
-| `test_backtest.py` | **Look-ahead guards** — no entry before its signal resolves, and perturbing future prices cannot change past returns. Plus cost accounting, slot limits, and that the filtered and negative-news arms exactly partition the plain RSI signal. |
-| `test_signals.py` | RSI against an independently written textbook implementation; per-ticker isolation; that future news cannot change past sentiment; weekend news rolls to the next open |
-| `test_metrics.py` | Newey-West against statsmodels' HAC, and that it is more conservative than OLS under positive autocorrelation |
+99 tests, no internet or model downloads needed.
 
----
+The most important ones check that the study can't see the future, and they were verified
+by deliberately breaking the code to confirm they catch it. Others check the RSI
+calculation against a separately written version of the same formula, confirm the
+statistics against a standard library, and walk a single trade through day by day against
+hand arithmetic — so the equity curve is provably made of the trades it claims.
 
-## Structure
+## Running it
+
+```bash
+pip install -r requirements.txt
+python -m study.run --smoke     # 5 companies, quick
+python -m study.run             # everything
+```
+
+Every figure in the write-up is generated from the results file rather than typed in, so it
+can't fall out of date. Scoring all 103,036 articles takes about two hours on a normal
+laptop and is saved as it goes, so it can resume if interrupted.
 
 ```
 study/
-├── config.py      # every parameter, all fixed a priori
-├── data.py        # news corpus + yfinance bars, parquet-cached
-├── signals.py     # Wilder RSI, FinBERT scoring, sentiment decay
-├── backtest.py    # next-open execution, fixed slots, explicit costs
-├── metrics.py     # Sharpe, Newey-West t-stat, drawdown, bucket tables
-└── run.py         # CLI; regenerates every number in the note
+├── config.py      every setting, in one place
+├── data.py        news and share prices
+├── signals.py     RSI and sentiment scoring
+├── backtest.py    the simulation
+├── metrics.py     performance statistics
+├── validation.py  does the sentiment signal predict anything?
+└── run.py
 ```
